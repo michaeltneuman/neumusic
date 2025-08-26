@@ -60,7 +60,7 @@ class SpotifyReleaseMonitor:
         
         # Get user's playlists
         playlists = self.sp.current_user_playlists()
-        time.sleep(1.8)  # Rate limit pause
+        time.sleep(5)  # Rate limit pause
         
         target_playlist = None
         while playlists:
@@ -73,7 +73,7 @@ class SpotifyReleaseMonitor:
                 break
             
             playlists = self.sp.next(playlists)
-            time.sleep(1.8)  # Rate limit pause
+            time.sleep(5)  # Rate limit pause
         
         if not target_playlist:
             logger.warning(f"Playlist '{playlist_name}' not found")
@@ -81,7 +81,7 @@ class SpotifyReleaseMonitor:
         
         # Get tracks from playlist
         tracks = self.sp.playlist_tracks(target_playlist['id'])
-        time.sleep(1.8)  # Rate limit pause
+        time.sleep(5)  # Rate limit pause
         
         while tracks:
             for item in tqdm(tracks['items']):
@@ -93,7 +93,7 @@ class SpotifyReleaseMonitor:
                 break
             
             tracks = self.sp.next(tracks)
-            time.sleep(1.8)  # Rate limit pause
+            time.sleep(5)  # Rate limit pause
         
         logger.info(f"Found {len(artists)} unique artists in playlist")
         return artists
@@ -108,21 +108,21 @@ class SpotifyReleaseMonitor:
         for time_range in tqdm(time_ranges):
             logger.info(f"Getting {time_range} top artists")
             top_artists = self.sp.current_user_top_artists(limit=50, time_range=time_range)
-            time.sleep(1.8)  # Rate limit pause
+            time.sleep(5)  # Rate limit pause
             all_artists = top_artists['items']
             while top_artists['next']:
                 top_artists = self.sp.next(top_artists)
-                time.sleep(1.8)  # Rate limit pause
+                time.sleep(5)  # Rate limit pause
                 all_artists.extend(top_artists['items'])
             for artist in tqdm(all_artists):
                 artists.add((artist['id'], artist['name']))
             logger.info(f"Getting {time_range} top tracks")
             top_tracks = self.sp.current_user_top_tracks(limit=50, time_range=time_range)
-            time.sleep(1.8)  # Rate limit pause
+            time.sleep(5)  # Rate limit pause
             all_tracks = top_tracks['items']
             while top_tracks['next']:
                 top_tracks = self.sp.next(top_tracks)
-                time.sleep(1.8)  # Rate limit pause
+                time.sleep(5)  # Rate limit pause
                 all_tracks.extend(top_tracks['items'])
             for track in tqdm(all_tracks):
                 for artist in track['artists']:
@@ -162,11 +162,11 @@ class SpotifyReleaseMonitor:
         try:
             # Get albums
             albums = self.sp.artist_albums(artist_id, album_type='album,single,compilation', limit=50)
-            time.sleep(1.8)  # Rate limit pause
+            time.sleep(5)  # Rate limit pause
             all_albums = albums['items']
             while albums['next']:
                 albums = self.sp.next(albums)
-                time.sleep(1.8)  # Rate limit pause
+                time.sleep(5)  # Rate limit pause
                 all_albums.extend(albums['items'])
             for album in all_albums:
                 if album['release_date_precision']!='day':
@@ -324,3 +324,4 @@ if __name__ == "__main__":
     
 
     monitor.run_monitor()
+
