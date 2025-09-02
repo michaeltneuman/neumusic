@@ -366,7 +366,7 @@ if __name__ == "__main__":
     SPOTIFY_CLIENT_SECRET = input("SPOTIFY CLIENT SECRET?\n")
     SPOTIFY_REDIRECT_URI = 'http://localhost:8000/'
     GMAIL_EMAIL = input("GMAIL_EMAIL ADDRESS?\n")
-    GMAIL_APP_PASSWORD = input("GMAIL APP PASSWORD?\n?"
+    GMAIL_APP_PASSWORD = input("GMAIL APP PASSWORD?\n?")
     monitor = SpotifyReleaseMonitor(
         client_id=SPOTIFY_CLIENT_ID,
         client_secret=SPOTIFY_CLIENT_SECRET,
@@ -376,3 +376,4 @@ if __name__ == "__main__":
     )
     
     monitor.run_monitor()
+
