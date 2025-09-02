@@ -13,6 +13,7 @@ import logging
 from collections import defaultdict
 from urllib.parse import quote
 import os
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -131,20 +132,24 @@ class AlbumReleaseEmailer:
             album_items = soup.find_all(['b','a'])
             found_albums = []
             date_active = False
-            for item in album_items:
-                if item.name == 'b':
-                    if item.text.strip() == target_date['genius_format']:
-                        logging.warning("Date active now!")
-                        date_active = True
-                    elif item.text.strip() == (target_date['date_obj']+timedelta(days=7)).strftime('||%m/||%d').replace('||0','||').replace('||',''):
-                        logging.warning("Date no longer active!")
-                        break
-                elif date_active:
-                    album_info = item.text.strip().split(' - ')[:-1]
-                    artist = album_info[0]
-                    album = ' - '.join(album_info[1:])
-                    found_albums.append((artist, album))
-                    logging.info(f"{artist} | {album}")
+            for item in tqdm(album_items):
+                try:
+                    if item.name == 'b':
+                        if item.text.strip() == target_date['genius_format']:
+                            logging.warning("Date active now!")
+                            date_active = True
+                        elif item.text.strip() == (target_date['date_obj']+timedelta(days=7)).strftime('||%m/||%d').replace('||0','||').replace('||',''):
+                            logging.warning("Date no longer active!")
+                            break
+                    elif date_active:
+                        album_info = item.text.strip().split(' - ')[:-1]
+                        artist = album_info[0]
+                        album = ' - '.join(album_info[1:])
+                        found_albums.append((artist, album))
+                        logging.info(f"{artist} | {album}")
+                except Exception as ee:
+                    print(f"{ee}")
+                    continue
             if not found_albums:
                 self.errors.append("Genius: No albums found or site structure may have changed")
                 exit()
@@ -709,10 +714,10 @@ class AlbumReleaseEmailer:
 
 def main():
     emailer = AlbumReleaseEmailer(
-        gmail_user=input("GMAIL USERNAME?\n"),
-        gmail_app_password=input("GMAIL PASSWORD?\n"),
-        spotify_client_id=input("SPOTIFY CLIENT_ID?\n"),
-        spotify_client_secret=input("SPOTIFY CLIENT_SECRET?\n"),
+        gmail_user=os.getenv('GMAIL_USER'),
+        gmail_app_password=os.getenv('GMAIL_PASSWORD'),
+        spotify_client_id=os.getenv('SPOTIPY_001_CLIENT_ID'),
+        spotify_client_secret=os.getenv('SPOTIPY_001_CLIENT_SECRET'),
     )
     emailer.run_continuous()
 
