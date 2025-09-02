@@ -7,6 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timezone, timedelta
 import logging
+import random
 from tqdm import tqdm
 
 # Configure logging
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 class SpotifyReleaseMonitor:
     def __init__(self, client_id, client_secret, redirect_uri, gmail_email, gmail_password):
         # Spotify setup
-        self.scope = "user-read-recently-played user-top-read playlist-read-private"
+        self.scope = "user-read-recently-played user-top-read playlist-read-private playlist-modify-public"
         self.sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
             client_id=client_id,
             client_secret=client_secret,
@@ -25,7 +26,7 @@ class SpotifyReleaseMonitor:
         ))
         
         # Email setup
-        self.gmail_email = gmail_email[0]
+        self.gmail_email = gmail_email
         self.gmail_password = gmail_password
         
         # Data storage file
@@ -60,20 +61,25 @@ class SpotifyReleaseMonitor:
         
         # Get user's playlists
         playlists = self.sp.current_user_playlists()
-        time.sleep(5)  # Rate limit pause
+        time.sleep(9)  # Rate limit pause
         
         target_playlist = None
+        skip_this_time = False
         while playlists:
-            for playlist in tqdm(playlists['items']):
-                if playlist['name'] == playlist_name:
-                    target_playlist = playlist
+            if not skip_this_time:
+                for playlist in tqdm(playlists['items']):
+                    if playlist['name'] == playlist_name:
+                        target_playlist = playlist
+                        break
+                if target_playlist or not playlists['next']:
                     break
-            
-            if target_playlist or not playlists['next']:
-                break
-            
-            playlists = self.sp.next(playlists)
-            time.sleep(5)  # Rate limit pause
+            try:
+                playlists = self.sp.next(playlists)
+                skip_this_time = False
+            except Exception as e:
+                print(f"{e}")
+                skip_this_time = True
+            time.sleep(9)  # Rate limit pause
         
         if not target_playlist:
             logger.warning(f"Playlist '{playlist_name}' not found")
@@ -81,7 +87,7 @@ class SpotifyReleaseMonitor:
         
         # Get tracks from playlist
         tracks = self.sp.playlist_tracks(target_playlist['id'])
-        time.sleep(5)  # Rate limit pause
+        time.sleep(9)  # Rate limit pause
         
         while tracks:
             for item in tqdm(tracks['items']):
@@ -93,7 +99,7 @@ class SpotifyReleaseMonitor:
                 break
             
             tracks = self.sp.next(tracks)
-            time.sleep(5)  # Rate limit pause
+            time.sleep(9)  # Rate limit pause
         
         logger.info(f"Found {len(artists)} unique artists in playlist")
         return artists
@@ -108,21 +114,21 @@ class SpotifyReleaseMonitor:
         for time_range in tqdm(time_ranges):
             logger.info(f"Getting {time_range} top artists")
             top_artists = self.sp.current_user_top_artists(limit=50, time_range=time_range)
-            time.sleep(5)  # Rate limit pause
+            time.sleep(9)  # Rate limit pause
             all_artists = top_artists['items']
             while top_artists['next']:
                 top_artists = self.sp.next(top_artists)
-                time.sleep(5)  # Rate limit pause
+                time.sleep(9)  # Rate limit pause
                 all_artists.extend(top_artists['items'])
             for artist in tqdm(all_artists):
                 artists.add((artist['id'], artist['name']))
             logger.info(f"Getting {time_range} top tracks")
             top_tracks = self.sp.current_user_top_tracks(limit=50, time_range=time_range)
-            time.sleep(5)  # Rate limit pause
+            time.sleep(9)  # Rate limit pause
             all_tracks = top_tracks['items']
             while top_tracks['next']:
                 top_tracks = self.sp.next(top_tracks)
-                time.sleep(5)  # Rate limit pause
+                time.sleep(9)  # Rate limit pause
                 all_tracks.extend(top_tracks['items'])
             for track in tqdm(all_tracks):
                 for artist in track['artists']:
@@ -155,18 +161,23 @@ class SpotifyReleaseMonitor:
         
         logger.info(f"Updated artist list with {len(all_artists)} artists")
     
+    def get_artist_ids_to_skip(self):
+        return []
+    
     def get_artist_releases(self, artist_id, since_date=None):
         """Get releases for a specific artist since a given date"""
         releases = []
-        
+        if artist_id in self.get_artist_ids_to_skip():
+            logger.warning(f"Skipping {artist_id}")
+            return releases
         try:
             # Get albums
-            albums = self.sp.artist_albums(artist_id, album_type='album,single,compilation', limit=50)
-            time.sleep(5)  # Rate limit pause
+            albums = self.sp.artist_albums(artist_id, album_type='album,single', limit=50)
+            time.sleep(9)  # Rate limit pause
             all_albums = albums['items']
             while albums['next']:
                 albums = self.sp.next(albums)
-                time.sleep(5)  # Rate limit pause
+                time.sleep(9)  # Rate limit pause
                 all_albums.extend(albums['items'])
             for album in all_albums:
                 if album['release_date_precision']!='day':
@@ -180,7 +191,8 @@ class SpotifyReleaseMonitor:
                         'name': album['name'],
                         'type': album['album_type'],
                         'release_date': release_date,
-                        'url': album['external_urls']['spotify']
+                        'url': album['external_urls']['spotify'],
+                        'album_cover': album['images'][0]['url']
                     })
         
         except Exception as e:
@@ -198,6 +210,7 @@ class SpotifyReleaseMonitor:
             body += f"""<p><h2>{release_info['artist_name']}</h2>"""
             for release in release_info['releases']:
                 body += f"""<strong><a href="{release['url']}">{release['name']}</a></strong>"""
+                body += f"""<img src="{release_info['album_cover']}" alt="Album Cover" style="width:300px; border-radius:10px;">"""
             body += """</p>"""
         body += """</body></html>"""
         msg.attach(MIMEText(body, 'html'))
@@ -206,6 +219,26 @@ class SpotifyReleaseMonitor:
         server.login(self.gmail_email, self.gmail_password)
         server.sendmail(self.gmail_email, self.gmail_email, msg.as_string())
         server.quit()
+    
+    def prune_playlist(self):
+        all_tracks = []
+        tracks_to_remove = []
+        results = self.sp.playlist_items(YOUR_PLAYLIST_ID,additional_types=['track'],limit=100)
+        all_tracks.extend(results['items'])
+        while results['next']:
+            results = self.sp.next(results)
+            all_tracks.extend(results['items'])
+        for item in all_tracks:
+            track = item['track']
+            if not track:
+                continue
+            for artist in track['artists']:
+                if artist['id'] in self.get_artist_ids_to_skip():
+                    tracks_to_remove.append(track['uri'])
+                    print(f"REMOVING {track['uri']}")
+                    break
+        for i in range(0,len(tracks_to_remove),100):
+            self.sp.playlist_remove_all_occurrences_of_items(YOUR_PLAYLIST_ID,tracks_to_remove[i:i+100])
     
     def check_for_new_releases(self):
         """Check all monitored artists for new releases"""
@@ -237,7 +270,25 @@ class SpotifyReleaseMonitor:
                     if artist_id not in releases_to_send_emails_for:
                         releases_to_send_emails_for[artist_id] = {'artist_name':artist_info['name'],'releases':list()}
                     releases_to_send_emails_for[artist_id]['releases'].append(release)
-                    
+                    print("Adding track to playlist...")
+                    album_tracks = self.sp.album_tracks(release['id'])['items']
+                    if len(album_tracks)<3:
+                        num_tracks_to_add = 1
+                    elif len(album_tracks)<8:
+                        num_tracks_to_add = 2
+                    else:
+                        num_tracks_to_add = 3
+                    already_added_ids = set()
+                    while num_tracks_to_add > 0:
+                        for track in album_tracks:
+                            if random.randint(1,11) == 1 and track['uri'] not in already_added_ids:
+                                self.sp.playlist_add_items(YOUR_PLAYLIST_ID,[track['uri'],])
+                                num_tracks_to_add -= 1
+                                already_added_ids.add(track['uri'])
+                                print(f"Added track {track['uri']}!")
+                                break
+                    print("Added successfully!")
+                    time.sleep(12)
                     # Record this release
                     self.data["known_releases"][release_key] = {
                         "artist_id": artist_id,
@@ -293,10 +344,10 @@ class SpotifyReleaseMonitor:
         if not any(artist['last_check'] for artist in self.data["artists"].values()):
             logger.info("First run detected - performing initial scan")
             self.run_initial_scan()
-        
+        self.prune_playlist()
         while True:
             for loop_num in range(10):
-                if loop_num % 10 == 0:
+                if loop_num % 10 == 2:
                     self.update_artist_list()
                 try:
                     self.check_for_new_releases()
@@ -309,11 +360,13 @@ class SpotifyReleaseMonitor:
                     time.sleep(600)
 
 if __name__ == "__main__":
-    SPOTIFY_CLIENT_ID = input("SPOTIFY CLIENT_ID?\n")
-    SPOTIFY_CLIENT_SECRET = input("SPOTIFY CLIENT_SECRET?\n")
-    SPOTIFY_REDIRECT_URI = "http://localhost/callback"  # Or your registered redirect URI
-    GMAIL_EMAIL = input("GMAIL USERNAME?\n"),
-    GMAIL_APP_PASSWORD = input("GMAIL PASSWORD?\n")
+    global YOUR_PLAYLIST_ID
+    YOUR_PLAYLIST_ID = input("YOUR PLAYLIST ID (Spotify ID of playlist you want to add tracks to)?\n")
+    SPOTIFY_CLIENT_ID =  input("SPOTIFY CLIENT ID?\n")
+    SPOTIFY_CLIENT_SECRET = input("SPOTIFY CLIENT SECRET?\n")
+    SPOTIFY_REDIRECT_URI = 'http://localhost:8000/'
+    GMAIL_EMAIL = input("GMAIL_EMAIL ADDRESS?\n")
+    GMAIL_APP_PASSWORD = input("GMAIL APP PASSWORD?\n?"
     monitor = SpotifyReleaseMonitor(
         client_id=SPOTIFY_CLIENT_ID,
         client_secret=SPOTIFY_CLIENT_SECRET,
@@ -322,6 +375,4 @@ if __name__ == "__main__":
         gmail_password=GMAIL_APP_PASSWORD
     )
     
-
     monitor.run_monitor()
-
